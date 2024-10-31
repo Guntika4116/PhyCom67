@@ -3,80 +3,68 @@
 // 2. ขากลาง ต่อ A0
 // 3. ขาขวา ต่อ GND
 
-//แก้ตรงที่มี *** นอกนั้นไม่ต้องแก้
+#include <WiFi.h>          // สำหรับ ESP32; ถ้าใช้ ESP8266 ให้ใช้ <ESP8266WiFi.h>
+#include <MQTTClient.h>    // เรียกใช้ไลบรารี MQTT
 
-#include <WiFi.h>
-#include <PubSubClient.h>
+// กำหนดข้อมูลการเชื่อมต่อ Wi-Fi และ MQTT
+const char* ssid = "Kantika";            // ชื่อเครือข่าย Wi-Fi ที่จะเชื่อมต่อ
+const char* password = "12345678";       // รหัสผ่าน Wi-Fi
+const char* mqttServer = "phycom.it.kmitl.ac.th"; // ที่อยู่เซิร์ฟเวอร์ MQTT
+const int mqttPort = 1883;               // พอร์ตสำหรับเชื่อมต่อ MQTT
 
-const int tempPin = A0;  // ขากลาง
+WiFiClient net;            // สร้างอ็อบเจกต์ WiFiClient สำหรับการเชื่อมต่อ Wi-Fi
+MQTTClient client;         // สร้างอ็อบเจกต์ MQTTClient สำหรับจัดการการเชื่อมต่อกับ MQTT broker
 
-// ข้อมูลการเชื่อมต่อ WiFi
-const char* ssid = "Kantika";       // ใส่ชื่อ WiFi Hotspot โทรศัพท์ ***
-const char* password = "12345678";  // ใส่รหัสผ่าน WiFi *** 
-
-// ข้อมูลการเชื่อมต่อ MQTT
-const char* mqttServer = "phycom.it.kmitl.ac.th"; //ดู host จากหน้าเว็บช่องซ้ายสุด อาจจะ https://phycom.it.kmitl.ac.th/exam67
-const int mqttPort = 1883;
-const char* mqttClientID = "client_3e6d71c2"; //ใส่ client id อยู่ช่องขวาสุดในหน้าเว็บ ***
-const char* topic = "66070012/temp"; //ใส่ชื่อ Topic ตามที่เขาให้มา Ex. 66070xxx/light ***
-
-WiFiClient wifiClient;
-PubSubClient client(wifiClient);
-
-void setup() {
-  Serial.begin(115200);
-  
-  // เชื่อมต่อ WiFi
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.println("Connecting to WiFi...");
-  }
-  Serial.println("Connected to WiFi");
-
-  // ตั้งค่า MQTT server
-  client.setServer(mqttServer, mqttPort);
+// ฟังก์ชันที่ถูกเรียกเมื่อมีข้อความใหม่เข้ามาจาก MQTT
+void messageReceived(String &topic, String &payload) {
+  Serial.println("Incoming message:");
+  Serial.println("Topic: " + topic);    // แสดงหัวข้อที่ได้รับข้อความ
+  Serial.println("Payload: " + payload); // แสดงเนื้อหาข้อความที่ได้รับ
 }
 
-void reconnect() {
-  // พยายามเชื่อมต่อกับ MQTT broker
-  while (!client.connected()) {
-    Serial.println("Connecting to MQTT...");
-    if (client.connect(mqttClientID)) {
-      Serial.println("Connected to MQTT");
-    } else {
-      Serial.print("Failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      delay(5000);
-    }
+void setup() {
+  Serial.begin(9600); // เริ่มต้นการสื่อสารแบบ Serial ที่ความเร็ว 9600 bps
+  
+  // เชื่อมต่อ Wi-Fi
+  WiFi.begin(ssid, password);     // เริ่มการเชื่อมต่อ Wi-Fi
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) { // รอจนกว่าจะเชื่อมต่อสำเร็จ
+    delay(500);
+    Serial.print(".");
   }
+  Serial.println("\nConnected to WiFi"); // แสดงข้อความเมื่อเชื่อมต่อสำเร็จ
+
+  // ตั้งค่า MQTT
+  client.begin(mqttServer, mqttPort, net); // เริ่มต้นการเชื่อมต่อ MQTT กับ server และ port ที่กำหนด
+  client.onMessage(messageReceived);       // กำหนดให้เรียกใช้ฟังก์ชัน messageReceived เมื่อมีข้อความใหม่
+
+  Serial.print("Connecting to MQTT...");
+  while (!client.connect("arduinoClient")) {  // พยายามเชื่อมต่อ MQTT โดยใช้ client ID
+    Serial.print(".");
+    delay(1000);
+  }
+  Serial.println("\nConnected to MQTT broker!"); // แสดงข้อความเมื่อเชื่อมต่อ MQTT สำเร็จ
+
+  // สมัคร (Subscribe) หัวข้อที่ต้องการฟังข้อมูล
+  client.subscribe("66070012/temp");
 }
 
 void loop() {
-  if (!client.connected()) {
-    reconnect();
-  }
-  client.loop();
+  client.loop(); // ทำงานต่อเนื่องเพื่อรักษาการเชื่อมต่อ MQTT ไว้
 
-  // อ่านค่าอนาล็อกจาก MCP9700AE
-  int analogValue = analogRead(tempPin);
-  float voltage = analogValue * (5.0 / 1023.0);     // แปลงค่าเป็นโวลต์
-  float temperatureC = (voltage - 0.5) * 100;       // แปลงโวลต์เป็นอุณหภูมิ (เซลเซียส)
+  int sensorValue = analogRead(A0); // อ่านค่าจากเซนเซอร์ที่ขา A0
+  float voltage = sensorValue * (5.0 / 1023.0); // แปลงค่า analog เป็นค่าแรงดันไฟฟ้า โดยใช้ไฟอ้างอิง 5V
+  float temperatureC = (voltage - 0.5) * 100; // สำหรับ MCP9700 จะลบ 0.5V และคูณด้วย 100 เพื่อนำไปเป็นอุณหภูมิใน Celsius
 
-  // แปลงอุณหภูมิเป็นข้อความ
-  char tempString[8];
-  dtostrf(temperatureC, 1, 2, tempString);
+  String num_str = String(temperatureC); // แปลงค่าอุณหภูมิเป็น String
+  char messageBuffer[10];
+  num_str.toCharArray(messageBuffer, 10); // แปลง String เป็นอาร์เรย์ตัวอักษรเพื่อส่งข้อความผ่าน MQTT
+  
+  // ส่งข้อมูลอุณหภูมิไปยังหัวข้อทุก ๆ 2 วินาที
+  client.publish("66070012/temp", messageBuffer);
+  Serial.println("Message published to 66070012/temp : " + String(temperatureC)); // แสดงข้อความที่ส่งไปยัง MQTT
 
-  // ส่งค่าอุณหภูมิไปยัง MQTT topic
-  Serial.print("Publishing temperature: ");
-  Serial.println(tempString);
-  client.publish(topic, tempString);
-
-  delay(5000);  // ส่งข้อมูลทุกๆ 5 วินาที
-
-  if (!client.connected()) {
-    reconnect();
-  }
-  client.loop();
+  delay(2000);   // หน่วงเวลา 2 วินาที (สำหรับการสาธิต)
 }
+
+
