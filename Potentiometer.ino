@@ -1,78 +1,71 @@
-//อันนี้คือ ตัวปรับค่าที่หมุน ๆ ได้
 
-// วิธีต่อ (หันด้านเรียบๆที่ไม่ได้เอาไว้หมุนเข้าหาตัว)
-// 1. ขาซ้าย ต่อ 5v
-// 2. ขากลาง ต่อ A0
-// 3. ขาขวา ต่อ GND
+//อันนี้คือหมุนๆ
+//หันด้านแบนเข้าตัว ซ้ายลบ ขวาบวก กลางA
+#include <WiFi.h>          // ไลบรารีสำหรับ ESP32; ถ้าใช้ ESP8266 ให้ใช้ <ESP8266WiFi.h>
+#include <MQTTClient.h>    // ไลบรารีสำหรับการเชื่อมต่อ MQTT
 
-//แก้ตรงที่มี *** นอกนั้นไม่ต้องแก้
+// ข้อมูลการเชื่อมต่อ Wi-Fi และ MQTT
+const char* ssid = "Kantika";           // ชื่อ Wi-Fi ที่ต้องการเชื่อมต่อ
+const char* password = "12345678";   // รหัสผ่าน Wi-Fi
+const char* mqttServer = "phycom.it.kmitl.ac.th"; // เซิร์ฟเวอร์ MQTT
+const int mqttPort = 1883;             // พอร์ตสำหรับการเชื่อมต่อ MQTT
 
-#include <WiFi.h>
-#include <PubSubClient.h>
+// สร้างอ็อบเจกต์สำหรับการเชื่อมต่อ Wi-Fi และ MQTT
+WiFiClient net;
+MQTTClient client;
 
-// ขากลาง
-const int potPin = A0;
+// กำหนดขาสำหรับ Potentiometer (ขา Analog)
+const int potPin = A0; // ขา A0 สำหรับอ่านค่าจาก Potentiometer
 
-// ข้อมูลการเชื่อมต่อ WiFi
-const char* ssid = "Kantika";       // ใส่ชื่อ WiFi Hotspot โทรศัพท์ ***
-const char* password = "12345678";  // ใส่รหัสผ่าน WiFi *** 
-
-// ข้อมูลการเชื่อมต่อ MQTT
-const char* mqttServer = "phycom.it.kmitl.ac.th"; //ดู host จากหน้าเว็บช่องซ้ายสุด อาจจะ https://phycom.it.kmitl.ac.th/exam67
-const int mqttPort = 1883;
-const char* mqttClientID = "client_ead42ded"; //ใส่ client id อยู่ช่องขวาสุดในหน้าเว็บ ***
-const char* topic = "66070012/light"; //ใส่ชื่อ Topic ตามที่เขาให้มา Ex. 66070xxx/light ***
-
-WiFiClient wifiClient;
-PubSubClient client(wifiClient);
-
-void setup() {
-  Serial.begin(115200);
-  
-  // เชื่อมต่อ WiFi
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.println("Connecting to WiFi...");
-  }
-  Serial.println("Connected to WiFi");
-
-  // ตั้งค่า MQTT server
-  client.setServer(mqttServer, mqttPort);
+// ฟังก์ชันที่ถูกเรียกเมื่อมีข้อความใหม่เข้ามาจาก MQTT
+void messageReceived(String &topic, String &payload) {
+  Serial.println("Incoming message:");        // แสดงข้อความที่เข้ามา
+  Serial.println("Topic: " + topic);          // แสดงหัวข้อของข้อความ
+  Serial.println("Payload: " + payload);      // แสดงเนื้อหาของข้อความ
 }
 
-void reconnect() {
-  // พยายามเชื่อมต่อกับ MQTT broker
-  while (!client.connected()) {
-    Serial.println("Connecting to MQTT...");
-    if (client.connect(mqttClientID)) {
-      Serial.println("Connected to MQTT");
-    } else {
-      Serial.print("Failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      delay(5000);
-    }
+void setup() {
+  Serial.begin(9600); // เริ่มต้น Serial สำหรับการสื่อสารที่ความเร็ว 9600 bps
+  
+  // เชื่อมต่อ Wi-Fi
+  WiFi.begin(ssid, password);   // เริ่มการเชื่อมต่อกับ Wi-Fi
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) { // รอจนกว่าจะเชื่อมต่อสำเร็จ
+    delay(500);
+    Serial.print(".");
   }
+  Serial.println("\nConnected to WiFi"); // แสดงข้อความเมื่อเชื่อมต่อสำเร็จ
+
+  // ตั้งค่า MQTT
+  client.begin(mqttServer, mqttPort, net); // เริ่มต้นการเชื่อมต่อ MQTT กับ server และ port ที่กำหนด
+  client.onMessage(messageReceived);       // กำหนดให้เรียกใช้ฟังก์ชัน messageReceived เมื่อมีข้อความใหม่
+
+  Serial.print("Connecting to MQTT...");
+  while (!client.connect("arduinoClient")) {  // พยายามเชื่อมต่อ MQTT โดยใช้ client ID "arduinoClient"
+    Serial.print(".");
+    delay(1000);
+  }
+  Serial.println("\nConnected to MQTT broker!"); // แสดงข้อความเมื่อเชื่อมต่อสำเร็จ
+
+  // สมัคร (Subscribe) หัวข้อที่ต้องการฟังข้อมูล
+  client.subscribe("66070012/light");
+
+  // ส่งข้อความไปยังหัวข้อ (เป็นตัวเลือก ไม่บังคับ)
+  // client.publish("phycom/66070138", "Hello, MQTT from Arduino!");
 }
 
 void loop() {
-  if (!client.connected()) {
-    reconnect();
-  }
-  client.loop();
+  client.loop(); // ทำงานต่อเนื่องเพื่อรักษาการเชื่อมต่อกับ MQTT ไว้
 
-  // อ่านค่าจากตัวต้านทานปรับค่า
-  int potValue = analogRead(potPin); // ค่าอ่านได้อยู่ในช่วง 0-1023
+  int potValue = analogRead(A0); // อ่านค่าจาก Potentiometer ที่ขา A0
 
-  // แปลงค่าเป็นข้อความ
-  char potString[8];
-  itoa(potValue, potString, 10); // แปลงค่าเป็นข้อความในฐานสิบ
+  String num_str = String(potValue);   // แปลงค่าเป็น String
+  char messageBuffer[10];
+  num_str.toCharArray(messageBuffer, 10); // แปลง String เป็นอาร์เรย์ตัวอักษรเพื่อส่งผ่าน MQTT
+  
+  // ส่งข้อมูลไปยังหัวข้อทุก ๆ 2 วินาที
+  client.publish("66070012/light", messageBuffer);
+  Serial.println("Message published to 66070012/light : " + String(potValue)); // แสดงข้อความที่ส่งไปยัง MQTT
 
-  // ส่งค่าตัวต้านทานปรับค่าไปยัง MQTT topic
-  Serial.print("Publishing pot value: ");
-  Serial.println(potString);
-  client.publish(topic, potString);
-
-  delay(5000);  // ส่งข้อมูลทุกๆ 5 วินาที
+  delay(2000);   // หน่วงเวลา 2 วินาที (เพื่อการสาธิต)
 }
